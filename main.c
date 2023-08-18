@@ -4,7 +4,7 @@
 #include <windows.h>
 #include <winscard.h>
 
-#define IOCTL_CCID_ESCAPE SCARD_CTL_CODE(3500)
+#define IOCTL_CCID_ESCAPE SCARD_CTL_CODE(3500)		// use this if code should run without tag present
 
 typedef struct _SCARD_DUAL_HANDLE {
 	SCARDCONTEXT hContext;
@@ -32,7 +32,7 @@ BOOL SendRecvReader(PSCARD_DUAL_HANDLE pHandle, const BYTE* pbData, const UINT16
 	PrintHex(pbData, cbData);
 
 	// scStatus = SCardTransmit(pHandle->hCard, NULL, pbData, cbData, NULL, pbResult, &cbRecvLenght);
-	scStatus = SCardControl(pHandle->hCard, IOCTL_CCID_ESCAPE, pbData, cbData, pbResult, cbRecvLenght, &cbRecvLenght);
+	scStatus = SCardControl(pHandle->hCard, IOCTL_CCID_ESCAPE, pbData, cbData, pbResult, cbRecvLenght, &cbRecvLenght);	// use this if code should run without tag present
 
 	if (scStatus == SCARD_S_SUCCESS)
 	{
@@ -58,7 +58,7 @@ BOOL OpenReader(LPCWSTR szReaderName, PSCARD_DUAL_HANDLE pHandle)
 	if (scStatus == SCARD_S_SUCCESS)
 	{
 		// scStatus = SCardConnect(pHandle->hContext, szReaderName, SCARD_SHARE_SHARED, SCARD_PROTOCOL_Tx, &pHandle->hCard, &dwActiveProtocol);
-		scStatus = SCardConnect(pHandle->hContext, szReaderName, SCARD_SHARE_DIRECT, SCARD_PROTOCOL_UNDEFINED, &pHandle->hCard, &dwActiveProtocol);
+		scStatus = SCardConnect(pHandle->hContext, szReaderName, SCARD_SHARE_DIRECT, SCARD_PROTOCOL_UNDEFINED, &pHandle->hCard, &dwActiveProtocol); // use this if code should run without tag present
 		
 		if (scStatus == SCARD_S_SUCCESS)
 		{
@@ -93,15 +93,13 @@ int EmulateNTag() {
 	if (OpenReader(L"ACS ACR122 0", &hDual))
 	{
 
+		// to send commands directly to PN532 inside ACR122U you must use "ff 00 00 00 <lengthOfPayload> <payload>"
 
-		// BTW: to send commands directly to PN532 inside ACR122U you must use "ff 00 00 00 <lengthOfPayload> <payload>"
-
-												// 47 00 01
 		// 1. read register (returns 7 byte: D5 07 xx yy zz 90 00 )
 		const BYTE APDU_Command1[] = { 0xff, 0x00, 0x00, 0x00, 0x08, 0xd4, 0x06, 0x63, 0x05, 0x63, 0x0d, 0x63, 0x38 };
 
 		cbBuffer = 7;	// 7 byte reply expected
-		SendRecvReader(&hDual, APDU_Command1, sizeof(APDU_Command1), Buffer, &cbBuffer);	// execute command
+		SendRecvReader(&hDual, APDU_Command1, sizeof(APDU_Command1), Buffer, &cbBuffer);
 
 		// make sure this operation was successful, terminate if not
 		if (!(Buffer[5] == 0x90 && Buffer[6] == 0x00)) {
@@ -114,21 +112,15 @@ int EmulateNTag() {
 		}
 
 		// 2. update register values
-		
-		//	xx = xx | 0x04;  // CIU_TxAuto		|= InitialRFOn
-		//	yy = yy & 0xEF;  // CIU_ManualRCV	&= ~ParityDisable
-		//	zz = zz & 0xF7;  // CIU_Status2		&= ~MFCrypto1On
-		
+		BYTE XX = Buffer[2] | 0x04;		// CIU_TxAuto		|= InitialRFOn
+		BYTE YY = Buffer[3] & 0xef;		// CIU_ManualRCV	&= ~ParityDisable
+		BYTE ZZ = Buffer[4] & 0xf7;		// CIU_Status2		&= ~MFCrypto1On
 
-		// so if xx=47, yy=00, zz=01 then results will be	xx = 47 | 04 = 01000111 | 00000100 = 01000111 = 0x47
-		//													yy = 00 & EF = 00000000 & 11101111 = 00000000 = 0x00
-		//													zz = 01 & F7 = 00000001 & 11110111 = 00000001 = 0x01
-
-		// 3. write register						  																		       XX				 YY				   ZZ
-		const BYTE APDU_Command3[] = { 0xff, 0x00, 0x00, 0x00, 0x11, 0xd4, 0x08, 0x63, 0x02, 0x80, 0x63, 0x03, 0x80, 0x63, 0x05, 0x47, 0x63, 0x0d, 0x00, 0x63, 0x38, 0x01 };
+		// 3. write new register values
+		const BYTE APDU_Command3[] = { 0xff, 0x00, 0x00, 0x00, 0x11, 0xd4, 0x08, 0x63, 0x02, 0x80, 0x63, 0x03, 0x80, 0x63, 0x05, XX, 0x63, 0x0d, YY, 0x63, 0x38, ZZ };
 		cbBuffer = 4;	// 4 byte reply expected
-		SendRecvReader(&hDual, APDU_Command3, sizeof(APDU_Command3), Buffer, &cbBuffer);	// execute command
-
+		
+		SendRecvReader(&hDual, APDU_Command3, sizeof(APDU_Command3), Buffer, &cbBuffer);
 		// make sure this operation was successful, terminate if not
 		if (!(Buffer[0] == 0xd5 && Buffer[1] == 0x09 && Buffer[2] == 0x90 && Buffer[3] == 0x00)) {
 			CloseReader(&hDual);
@@ -142,8 +134,8 @@ int EmulateNTag() {
 		// 4. set parameters
 		const BYTE APDU_Command4[] = { 0xff, 0x00, 0x00, 0x00, 0x03, 0xd4, 0x12, 0x30 };
 		cbBuffer = 4;	// 4 byte reply expected
-		SendRecvReader(&hDual, APDU_Command4, sizeof(APDU_Command4), Buffer, &cbBuffer);	// execute command
-
+		
+		SendRecvReader(&hDual, APDU_Command4, sizeof(APDU_Command4), Buffer, &cbBuffer);
 		// make sure this operation was successful, terminate if not
 		if (!(Buffer[0] == 0xd5 && Buffer[1] == 0x13 && Buffer[2] == 0x90 && Buffer[3] == 0x00)) {
 			CloseReader(&hDual);
@@ -154,35 +146,35 @@ int EmulateNTag() {
 			wprintf(L"Parameters have successfully been set.\n\n");
 		}
 
-
-
 		// 5. TgInitAsTarget (page 50 vs page 57 of PN532 Application Note AN133910 AN10449_1)
-																														
-		// const BYTE APDU_Command5[] =		  { 0xff, 0x00, 0x00, 0x00, 0x38, 0x8c, 0x04, 0x08, 0x00, 0x12, 0x34, 0x56, 0x60, 0x01, 0xFE, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xff, 0xff, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x00 };
-		const BYTE APDU_Command5[] =		  { 0xff, 0x00, 0x00, 0x00, 0x38, 0x8c, 0x04, 0x00, 0x44, 0x12, 0x34, 0x56, 0x60, 0x01, 0xfe, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xff, 0xff, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x00 };
-																				//    02: < d5 03 32 01 06 07 90 00
-																				//    04: < d5 05 00 00 01 01 00 00 00 80 90 00
-																				
-		// try 0x00 0x04 instead of 0x04 0x00 (ATQA)
-
-		cbBuffer = 12;	// 12 byte reply expected
+																		// mode	04 = ISO14443-4A													
+		const BYTE APDU_Command5[] = { 0xff, 0x00, 0x00, 0x00, 0x26, 0x8c, 0x04, 0x08, 0x00, 0x12, 0x34, 0x56, 0x60, 0x01, 0xFE, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xff, 0xff, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x00 };
+	
+		cbBuffer = 8;	// 8 byte reply expected
 		
-		SendRecvReader(&hDual, APDU_Command5, sizeof(APDU_Command5), Buffer, &cbBuffer);	// execute command
-		wprintf(L"TgInitAsTarget has been sent.\n\n");
-		
+		while (true) {	// usually works on second try
+			SendRecvReader(&hDual, APDU_Command5, sizeof(APDU_Command5), Buffer, &cbBuffer);
+			if (!(Buffer[2] == 0x00)) {
+				wprintf(L"Failed entering emulation mode. Retrying..\n");
+			}
+			else {
+				wprintf(L"Successfully initiated emulation mode.\n\n");
+				break;
+			}
+		}
 
-		// --------------------------
-		Sleep(1200);
-		/*
-		// 6. Get Status (will give same response again)
-		const BYTE APDU_Command6[] = { 0xff, 0x00, 0x00, 0x00, 0x02, 0xd4, 0x04 };
-		cbBuffer = 15;	// 5 byte reply expected
-		SendRecvReader(&hDual, APDU_Command6, sizeof(APDU_Command6), Buffer, &cbBuffer);	// execute command
+		// 6. TgGetData
+		const BYTE APDU_Command6[] = { 0xff, 0x00, 0x00, 0x00, 0x02, 0xd4, 0x86 };
+		// const BYTE APDU_Command6[] = { 0xff, 0x00, 0x00, 0x00, 0x01, 0x86 };
+
+		cbBuffer = 15;	// ? byte reply expected
+		SendRecvReader(&hDual, APDU_Command6, sizeof(APDU_Command6), Buffer, &cbBuffer);
 
 		// make sure this operation was successful, terminate if not
-		if (!(Buffer[3] == 0x90 && Buffer[4] == 0x00)) {
+		if (!( Buffer[2] == 0x00 )) {
 			CloseReader(&hDual);
-			wprintf(L"Error code received. Aborting..\n");
+			wprintf(L"Error: Did not receive 00 as third byte..\n");
+			wprintf(L"Info: You must have the ACR122U drivers installed to get past this step.. Default win drivers dont work.\n");
 			return 1;
 		}
 		else {
@@ -193,13 +185,11 @@ int EmulateNTag() {
 		// PROBLEM: "25" means "Error: DEP Protocol: Invalid device state, the system is in a state which does not allow the operation"
 
 		// -----------------------------
-		// 7. TgSetData?										   YY				 RESPONSE  d5 87 25 90 00
-		const BYTE APDU_Command7[] = { 0xff, 0x00, 0x00, 0x00, 0x00, 0xd4, 0x8e, 0xd5, 0x87, 0x25, 0x90, 0x00  };
+		// 7. TgSetData?													   |replace below with response|
+		const BYTE APDU_Command7[] = { 0xff, 0x00, 0x00, 0x00, YY, 0xd4, 0x8e, 0xd5, 0x87, 0x25, 0x90, 0x00  };
 		cbBuffer = 15;	// 4 byte reply expected
-		SendRecvReader(&hDual, APDU_Command7, sizeof(APDU_Command7), Buffer, &cbBuffer);	// execute command
-
-		// reply: d5 8f 25 90 00
 		
+		SendRecvReader(&hDual, APDU_Command7, sizeof(APDU_Command7), Buffer, &cbBuffer);	// execute command
 		// make sure this operation was successful, terminate if not
 		if (!(Buffer[3] == 0x90 && Buffer[4] == 0x00)) {
 			CloseReader(&hDual);
@@ -210,16 +200,13 @@ int EmulateNTag() {
 			wprintf(L"TgSetData has been sent.\n");
 			wprintf(L"\nAll commands have been sent successfully.\n");
 		}
-		*/
 
 
 		// ---------------------------
-
-		// done, close reader
 		CloseReader(&hDual);
 	}
 	else {
-		wprintf(L"Failed to find NFC reader or tag (tag must be present).\n");
+		wprintf(L"Failed to find NFC reader.\n");
 	}
 
 	return 0;
