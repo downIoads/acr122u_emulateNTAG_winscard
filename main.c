@@ -146,46 +146,41 @@ int EmulateNTag() {
 			wprintf(L"Parameters have successfully been set.\n\n");
 		}
 
-		// 5. TgInitAsTarget (page 50 vs page 57 of PN532 Application Note AN133910 AN10449_1)
-																		// mode	04 = ISO14443-4A													
-		const BYTE APDU_Command5[] = { 0xff, 0x00, 0x00, 0x00, 0x26, 0x8c, 0x04, 0x08, 0x00, 0x12, 0x34, 0x56, 0x60, 0x01, 0xFE, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xff, 0xff, 0xaa, 0x99, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11, 0x00, 0x00 };
-	
-		cbBuffer = 8;	// 8 byte reply expected
-		
-		while (true) {	// usually works on second try
-			SendRecvReader(&hDual, APDU_Command5, sizeof(APDU_Command5), Buffer, &cbBuffer);
-			if (!(Buffer[2] == 0x00)) {
-				wprintf(L"Failed entering emulation mode. Retrying..\n");
-			}
-			else {
-				wprintf(L"Successfully initiated emulation mode.\n\n");
-				break;
-			}
-		}
+		// 5. TgInitAsTarget
+											
+		// Emulate empty Felica tag (https://stackoverflow.com/questions/21051315/nfc-acr122-tginitastarget-initiator-releasing-target)
+		const BYTE APDU_Command5[] =    { 0xff, 0x00, 0x00, 0x00, 0x27, 0xd4, 0x8c, 0x05, 0x04, 0x00, 0x12, 0x34, 0x56, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
+
+		cbBuffer = 8;	// 8 byte reply expected
+		SendRecvReader(&hDual, APDU_Command5, sizeof(APDU_Command5), Buffer, &cbBuffer);
+
+
+
+		
 		// 6. TgGetData
 		const BYTE APDU_Command6[] = { 0xff, 0x00, 0x00, 0x00, 0x02, 0xd4, 0x86 };
 		// const BYTE APDU_Command6[] = { 0xff, 0x00, 0x00, 0x00, 0x01, 0x86 };
 
 		cbBuffer = 15;	// ? byte reply expected
-		SendRecvReader(&hDual, APDU_Command6, sizeof(APDU_Command6), Buffer, &cbBuffer);
 
+		SendRecvReader(&hDual, APDU_Command6, sizeof(APDU_Command6), Buffer, &cbBuffer);
 		// make sure this operation was successful, terminate if not
 		if (!( Buffer[2] == 0x00 )) {
 			CloseReader(&hDual);
 			wprintf(L"Error: Did not receive 00 as third byte..\n");
-			wprintf(L"Info: You must have the ACR122U drivers installed to get past this step.. Default win drivers dont work.\n");
+			wprintf(L"Info: Make sure you have ACS ACR122U drivers installed and set the registry value as described on page 38 of the ACR122U API documentation.\n");
 			return 1;
 		}
 		else {
 			wprintf(L"TgGetData has been sent.\n\n");
 		}
-
+		/*
 		// reply: d5 87 25 90 00
 		// PROBLEM: "25" means "Error: DEP Protocol: Invalid device state, the system is in a state which does not allow the operation"
 
 		// -----------------------------
-		// 7. TgSetData?													   |replace below with response|
+		// 7. TgSetData?  he might mean different Y (2+response length)		  |replace below with response|
 		const BYTE APDU_Command7[] = { 0xff, 0x00, 0x00, 0x00, YY, 0xd4, 0x8e, 0xd5, 0x87, 0x25, 0x90, 0x00  };
 		cbBuffer = 15;	// 4 byte reply expected
 		
@@ -200,9 +195,10 @@ int EmulateNTag() {
 			wprintf(L"TgSetData has been sent.\n");
 			wprintf(L"\nAll commands have been sent successfully.\n");
 		}
-
+		*/
 
 		// ---------------------------
+		wprintf(L"\nStopping emulation..\n");
 		CloseReader(&hDual);
 	}
 	else {
